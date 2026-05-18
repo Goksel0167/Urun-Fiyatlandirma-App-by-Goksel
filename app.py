@@ -65,7 +65,6 @@ rates, tcmb_tarih = tcmb_kur_getir()
 # ====================== SIDEBAR ======================
 st.sidebar.title("FiyatOpt Kimya")
 sayfa = st.sidebar.radio("Menü", ["Hesaplama", "Ürün Yönetimi", "Nakliye Yönetimi", "Geçmiş Kayıtlar"])
-
 st.sidebar.info(f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}")
 
 # ====================== HESAPLAMA ======================
@@ -105,37 +104,38 @@ if sayfa == "Hesaplama":
     bk2 = bs2 - (maliyet + nakliye)
 
     st.subheader("📊 İki Yöntem Karşılaştırması")
-    compare_df = pd.DataFrame({
+    compare = pd.DataFrame({
         "Açıklama": ["Birim Maliyet", "Birim Satış Fiyatı", "Birim Kâr"],
         "Yöntem 1": [bm1, bs1, bk1],
         "Yöntem 2": [bm2, bs2, bk2]
     })
-    st.dataframe(compare_df.style.format("{:.2f} TL"), use_container_width=True, hide_index=True)
+    st.dataframe(compare.style.format("{:.2f} TL"), use_container_width=True, hide_index=True)
 
     st.subheader("🌍 Döviz Bazlı Satış Fiyatları")
-    doviz_df = pd.DataFrame({
+    doviz = pd.DataFrame({
         "Döviz": ["USD", "EUR", "GBP", "CHF"],
         "Yöntem 1": [round(bs1 / rates.get(d, 34.5), 3) for d in ["USD","EUR","GBP","CHF"]],
         "Yöntem 2": [round(bs2 / rates.get(d, 34.5), 3) for d in ["USD","EUR","GBP","CHF"]]
     })
-    st.dataframe(doviz_df.style.format("{:.3f}"), use_container_width=True, hide_index=True)
+    st.dataframe(doviz.style.format("{:.3f}"), use_container_width=True, hide_index=True)
 
 # ====================== ÜRÜN YÖNETİMİ ======================
 elif sayfa == "Ürün Yönetimi":
     st.header("🗃️ Ürün Yönetimi")
-    # (İstersen tam kodunu da verebilirim, şimdilik temel hali)
-
-    st.info("Ürün ekleme, silme ve düzenleme burada yapılacak.")
+    st.info("Ürün ekleme, silme ve düzenleme burada yapılacak. (Geliştirme devam ediyor)")
 
 # ====================== NAKLİYE YÖNETİMİ ======================
 elif sayfa == "Nakliye Yönetimi":
     st.header("🚛 Nakliye Yönetimi")
-    st.info("Nakliye tarifeleri ve zam burada yönetilecek.")
+    st.info("Nakliye tarifeleri burada yönetilecek.")
 
 # ====================== GEÇMİŞ KAYITLAR ======================
 elif sayfa == "Geçmiş Kayıtlar":
     st.header("📋 Geçmiş Kayıtlar")
     df = pd.read_sql_query("SELECT * FROM kayitlar ORDER BY id DESC", get_db())
-    st.dataframe(df, use_container_width=True)
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("Henüz kayıt yok.")
 
 st.caption("FiyatOpt Kimya • Tüm sayfalar aktif")
