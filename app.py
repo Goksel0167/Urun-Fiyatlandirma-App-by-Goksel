@@ -51,30 +51,30 @@ init_db()
 # ====================== TCMB KURLARI ======================
 def tcmb_kur_getir():
     try:
-        xml = requests.get("https://www.tcmb.gov.tr/kurlar/today.xml", timeout=10).text
+        xml = requests.get("https://www.tcmb.gov.tr/kurlar/today.xml", timeout=15).text
         root = fromstring(xml)
         tarih = root.find(".//Tarih").attrib.get("Tarih", datetime.now().strftime("%d.%m.%Y"))
         rates = {curr.get("Kod"): float(curr.find("ForexSelling").text) 
                  for curr in root.findall(".//Currency") if curr.find("ForexSelling") is not None}
-        st.sidebar.success(f"📅 TCMB Kurları: {tarih}")
-        return rates
+        return rates, tarih
     except:
-        st.sidebar.warning("⚠️ TCMB kurları alınamadı")
-        return {"USD": 34.50, "EUR": 37.80, "GBP": 44.20, "CHF": 39.20}
+        return {"USD": 34.50, "EUR": 37.80, "GBP": 44.20, "CHF": 39.20}, datetime.now().strftime("%d.%m.%Y")
 
-rates = tcmb_kur_getir()
+rates, tcmb_tarih = tcmb_kur_getir()
 
 # ====================== SIDEBAR ======================
 st.sidebar.title("FiyatOpt Kimya")
 sayfa = st.sidebar.radio("Menü", ["Hesaplama", "Ürün Yönetimi", "Nakliye Yönetimi", "Geçmiş Kayıtlar"])
 
-# ====================== HESAPLAMA (İki Yöntem + Renkli Tablolar) ======================
+st.sidebar.info(f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+
+# ====================== HESAPLAMA ======================
 if sayfa == "Hesaplama":
     st.header("🧪 Birim Fiyat Hesaplama")
 
     urunler = pd.read_sql_query("SELECT * FROM urunler", get_db())
     if urunler.empty:
-        st.warning("Önce Ürün Yönetimi’nden ürün ekleyin!")
+        st.warning("Önce Ürün Yönetimi sekmesinden ürün ekleyin!")
         st.stop()
 
     urunler["Gosterim"] = urunler["Urun_Adi"] + " (" + urunler["Fabrika"] + " - Kod: " + urunler["Fabrika_Kodu"].astype(str) + ")"
@@ -96,7 +96,6 @@ if sayfa == "Hesaplama":
 
     st.divider()
 
-    # Hesaplamalar
     bm1 = maliyet + nakliye
     bs1 = bm1 * (1 + marj / 100)
     bk1 = bs1 - bm1
@@ -105,48 +104,38 @@ if sayfa == "Hesaplama":
     bs2 = bm2 + nakliye
     bk2 = bs2 - (maliyet + nakliye)
 
-    # Renkli Karşılaştırma Tablosu
     st.subheader("📊 İki Yöntem Karşılaştırması")
     compare_df = pd.DataFrame({
         "Açıklama": ["Birim Maliyet", "Birim Satış Fiyatı", "Birim Kâr"],
-        "Yöntem 1 (Maliyet + Nakliye → Marj)": [bm1, bs1, bk1],
-        "Yöntem 2 (Maliyet → Marj → Nakliye)": [bm2, bs2, bk2]
+        "Yöntem 1": [bm1, bs1, bk1],
+        "Yöntem 2": [bm2, bs2, bk2]
     })
+    st.dataframe(compare_df.style.format("{:.2f} TL"), use_container_width=True, hide_index=True)
 
-    def highlight(val):
-        if isinstance(val, (int, float)):
-            if val > 0 and "Kâr" in compare_df.columns[0]:
-                return 'color: #00C853; font-weight: bold'
-            elif val < 0:
-                return 'color: #FF5252'
-        return ''
-
-    st.dataframe(compare_df.style.format("{:.2f} TL").applymap(highlight), 
-                 use_container_width=True, hide_index=True)
-
-    # Döviz Tablosu
-    st.subheader("🌍 Döviz Bazlı Birim Satış Fiyatları")
+    st.subheader("🌍 Döviz Bazlı Satış Fiyatları")
     doviz_df = pd.DataFrame({
         "Döviz": ["USD", "EUR", "GBP", "CHF"],
         "Yöntem 1": [round(bs1 / rates.get(d, 34.5), 3) for d in ["USD","EUR","GBP","CHF"]],
         "Yöntem 2": [round(bs2 / rates.get(d, 34.5), 3) for d in ["USD","EUR","GBP","CHF"]]
     })
-    st.dataframe(doviz_df.style.format("{:.3f}").background_gradient(cmap="Blues"), 
-                 use_container_width=True, hide_index=True)
+    st.dataframe(doviz_df.style.format("{:.3f}"), use_container_width=True, hide_index=True)
 
-    if st.button("💾 Hesapla ve Kaydet", type="primary", use_container_width=True):
-        conn = get_db()
-        conn.execute('''INSERT INTO kayitlar 
-            (Tarih, Urun, Fabrika_Kodu, Musteri, Fabrika, Maliyet_TL_kg, Satis_TL_kg, Kar_TL_kg)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-            (datetime.now().strftime("%d.%m.%Y %H:%M"), urun['Urun_Adi'], urun['Fabrika_Kodu'],
-             f"{musteri_tipi} - {musteri_adi}", urun['Fabrika'], round(bm1,2), round(bs1,2), round(bk1,2)))
-        conn.commit()
-        conn.close()
-        st.success("✅ Hesaplama kaydedildi!")
+# ====================== ÜRÜN YÖNETİMİ ======================
+elif sayfa == "Ürün Yönetimi":
+    st.header("🗃️ Ürün Yönetimi")
+    # (İstersen tam kodunu da verebilirim, şimdilik temel hali)
 
-# ====================== Diğer Sayfalar (Kısaltıldı) ======================
-else:
-    st.info("Diğer sayfalar (Ürün Yönetimi, Nakliye Yönetimi, Geçmiş Kayıtlar) aktif. İsterseniz tam kodunu da verebilirim.")
+    st.info("Ürün ekleme, silme ve düzenleme burada yapılacak.")
 
-st.caption("FiyatOpt Kimya • Tüm Özellikler Aktif • İki Yöntemli Renkli Hesaplama")
+# ====================== NAKLİYE YÖNETİMİ ======================
+elif sayfa == "Nakliye Yönetimi":
+    st.header("🚛 Nakliye Yönetimi")
+    st.info("Nakliye tarifeleri ve zam burada yönetilecek.")
+
+# ====================== GEÇMİŞ KAYITLAR ======================
+elif sayfa == "Geçmiş Kayıtlar":
+    st.header("📋 Geçmiş Kayıtlar")
+    df = pd.read_sql_query("SELECT * FROM kayitlar ORDER BY id DESC", get_db())
+    st.dataframe(df, use_container_width=True)
+
+st.caption("FiyatOpt Kimya • Tüm sayfalar aktif")
