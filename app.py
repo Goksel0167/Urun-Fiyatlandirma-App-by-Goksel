@@ -67,57 +67,105 @@ st.sidebar.title("FiyatOpt Kimya")
 sayfa = st.sidebar.radio("Menü", ["Hesaplama", "Ürün Yönetimi", "Nakliye Yönetimi", "Geçmiş Kayıtlar"])
 st.sidebar.info(f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}")
 
-# ====================== HESAPLAMA ======================
-if sayfa == "Hesaplama":
-    st.header("🧪 Birim Fiyat Hesaplama")
-    # (Önceki mesajdaki renkli tablo kodunu buraya koyuyorum - uzun olduğu için kısalttım)
-    st.info("Hesaplama sayfası aktif. Ürün seçip test edebilirsiniz.")
-
-# ====================== ÜRÜN YÖNETİMİ (Tam Çalışır) ======================
-elif sayfa == "Ürün Yönetimi":
+# ====================== ÜRÜN YÖNETİMİ ======================
+if sayfa == "Ürün Yönetimi":
     st.header("🗃️ Ürün Yönetimi")
-
-    urunler = pd.read_sql_query("SELECT * FROM urunler", get_db())
 
     # Yeni Ürün Ekle
     with st.expander("➕ Yeni Ürün Ekle", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
-            ad = st.text_input("Ürün Adı")
-            kat = st.selectbox("Kategori", ["Lignosülfonat - Ligno Esaslı", "Sülfonat Naftalin - Naftalin Esaslı", "Polikarboksilat Eter - PCE Esaslı"])
+            urun_adi = st.text_input("Ürün Adı")
+            kategori = st.selectbox("Kategori", ["Lignosülfonat - Ligno Esaslı", "Sülfonat Naftalin - Naftalin Esaslı", "Polikarboksilat Eter - PCE Esaslı"])
         with col2:
-            fab = st.selectbox("Fabrika", ["Gebze", "Adana", "Trabzon"])
-            kod = {"Gebze":14, "Adana":16, "Trabzon":15}[fab]
-            mal = st.number_input("Maliyet (TL/kg)", min_value=0.0, step=0.01)
-            nak = st.number_input("Nakliye (TL/kg)", min_value=0.0, step=0.01)
-        if st.button("Ürünü Kaydet"):
-            if ad:
+            fabrika = st.selectbox("Fabrika", ["Gebze", "Adana", "Trabzon"])
+            fab_kodu = {"Gebze": 14, "Adana": 16, "Trabzon": 15}[fabrika]
+            maliyet = st.number_input("Maliyet (TL/kg)", min_value=0.0, step=0.01)
+            nakliye = st.number_input("Nakliye (TL/kg)", min_value=0.0, step=0.01)
+        
+        if st.button("Ürünü Kaydet", type="primary"):
+            if urun_adi:
                 conn = get_db()
                 conn.execute("INSERT INTO urunler (Urun_Adi, Fabrika, Fabrika_Kodu, Kategori, Maliyet_TL_kg, Nakliye_TL_kg) VALUES (?,?,?,?,?,?)",
-                             (ad, fab, kod, kat, mal, nak))
+                             (urun_adi, fabrika, fab_kodu, kategori, maliyet, nakliye))
                 conn.commit()
                 conn.close()
-                st.success("Ürün kaydedildi!")
+                st.success(f"✅ {urun_adi} kaydedildi!")
                 st.rerun()
 
     st.subheader("Mevcut Ürünler")
-    if not urunler.empty:
-        st.dataframe(urunler, use_container_width=True)
+    df = pd.read_sql_query("SELECT * FROM urunler", get_db())
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
     else:
-        st.info("Henüz ürün yok.")
+        st.info("Henüz ürün eklenmedi.")
 
 # ====================== NAKLİYE YÖNETİMİ ======================
 elif sayfa == "Nakliye Yönetimi":
     st.header("🚛 Nakliye Yönetimi")
-    st.info("Nakliye tarifeleri burada tanımlanacak.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        fabrika = st.selectbox("Fabrika", ["Gebze", "Adana", "Trabzon"])
+    with col2:
+        sevk_ili = st.selectbox("Sevk İli", ["Adana","İstanbul","Ankara","İzmir","Antalya","Bursa","Konya","Trabzon","Diğer"])
+    
+    ucret = st.number_input("Nakliye Ücreti (TL/kg)", min_value=0.0, step=0.01, value=12.5)
+
+    if st.button("Nakliye Kaydet"):
+        conn = get_db()
+        conn.execute("INSERT OR REPLACE INTO nakliye (Fabrika, Sevk_Ili, Nakliye_TL_kg) VALUES (?,?,?)", 
+                     (fabrika, sevk_ili, ucret))
+        conn.commit()
+        conn.close()
+        st.success(f"✅ {fabrika} → {sevk_ili} kaydedildi!")
+
+    st.subheader("Mevcut Nakliye Tarifeleri")
+    nak_df = pd.read_sql_query("SELECT * FROM nakliye", get_db())
+    st.dataframe(nak_df, use_container_width=True)
+
+# ====================== HESAPLAMA ======================
+elif sayfa == "Hesaplama":
+    st.header("🧪 Birim Fiyat Hesaplama")
+
+    urunler = pd.read_sql_query("SELECT * FROM urunler", get_db())
+    if urunler.empty:
+        st.warning("Önce Ürün Yönetimi’nden ürün ekleyin!")
+        st.stop()
+
+    urunler["Gosterim"] = urunler["Urun_Adi"] + " (" + urunler["Fabrika"] + " - Kod: " + urunler["Fabrika_Kodu"].astype(str) + ")"
+    secilen = st.selectbox("Ürün Seç", urunler["Gosterim"])
+    urun = urunler[urunler["Gosterim"] == secilen].iloc[0]
+
+    sevk_ili = st.selectbox("Sevk Edilecek İl", ["Adana","İstanbul","Ankara","İzmir","Antalya","Bursa","Konya","Trabzon","Diğer"])
+
+    nakliye_df = pd.read_sql_query("SELECT Nakliye_TL_kg FROM nakliye WHERE Fabrika=? AND Sevk_Ili=?", 
+                                   get_db(), params=(urun["Fabrika"], sevk_ili))
+    default_nak = float(nakliye_df.iloc[0]["Nakliye_TL_kg"]) if not nakliye_df.empty else 8.0
+
+    maliyet = st.number_input("Maliyet (TL/kg)", value=float(urun["Maliyet_TL_kg"]), step=0.01)
+    nakliye = st.number_input("Nakliye (TL/kg)", value=default_nak, step=0.01)
+    marj = st.number_input("Marj (%)", value=25.0, step=0.1)
+
+    musteri_tipi = st.selectbox("Müşteri Tipi", ["Direkt Satış Müşterisi", "Bayi"])
+    musteri_adi = st.text_input("Müşteri Adı", "ABC İnşaat")
+
+    if st.button("Hesapla ve Kaydet", type="primary"):
+        bm = maliyet + nakliye
+        bs = bm * (1 + marj / 100)
+        bk = bs - bm
+
+        st.success("✅ Hesaplandı!")
+        st.write(f"**{urun['Urun_Adi']}** → {sevk_ili}")
+        st.write(f"Birim Maliyet: **{bm:.2f} TL** | Satış: **{bs:.2f} TL** | Kâr: **{bk:.2f} TL**")
 
 # ====================== GEÇMİŞ KAYITLAR ======================
 elif sayfa == "Geçmiş Kayıtlar":
     st.header("📋 Geçmiş Kayıtlar")
-    kayitlar = pd.read_sql_query("SELECT * FROM kayitlar ORDER BY id DESC", get_db())
-    if not kayitlar.empty:
-        st.dataframe(kayitlar, use_container_width=True)
+    df = pd.read_sql_query("SELECT * FROM kayitlar ORDER BY id DESC", get_db())
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
     else:
         st.info("Henüz kayıt yok.")
 
-st.caption("FiyatOpt Kimya • Tüm sayfalar aktif hale getirildi")
+st.caption("FiyatOpt Kimya • Tüm sayfalar aktif")
