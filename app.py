@@ -62,20 +62,73 @@ def tcmb_kur_getir():
         rates = {curr.get("Kod"): float(curr.find("ForexSelling").text) 
                  for curr in root.findall(".//Currency") if curr.find("ForexSelling") is not None}
         st.success(f"✅ TCMB Kurları Güncellendi: {tarih}")
-        return rates, tarih
+        return rates
     except:
         st.error("❌ TCMB kurları alınamadı. Örnek kurlar kullanılıyor.")
-        return {"USD": 34.50, "EUR": 37.80, "GBP": 44.20, "CHF": 39.20}, datetime.now().strftime("%d.%m.%Y")
+        return {"USD": 34.50, "EUR": 37.80, "GBP": 44.20, "CHF": 39.20}
 
-rates, tcmb_tarih = tcmb_kur_getir()
+rates = tcmb_kur_getir()
 
 # ====================== SIDEBAR ======================
 st.sidebar.title("FiyatOpt Kimya")
 sayfa = st.sidebar.radio("Menü", ["Hesaplama", "Ürün Yönetimi", "Nakliye Yönetimi", "Geçmiş Kayıtlar"])
 st.sidebar.info(f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}")
 
-# ====================== HESAPLAMA (Nakliye Otomatik) ======================
-if sayfa == "Hesaplama":
+# ====================== ÜRÜN YÖNETİMİ ======================
+if sayfa == "Ürün Yönetimi":
+    st.header("🗃️ Ürün Yönetimi")
+
+    with st.expander("➕ Yeni Ürün Ekle", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            urun_adi = st.text_input("Ürün Adı")
+            kategori = st.selectbox("Kategori", ["Lignosülfonat - Ligno Esaslı", "Sülfonat Naftalin - Naftalin Esaslı", "Polikarboksilat Eter - PCE Esaslı"])
+        with col2:
+            fabrika = st.selectbox("Fabrika", ["Gebze", "Adana", "Trabzon"])
+            fab_kodu = {"Gebze": 14, "Adana": 16, "Trabzon": 15}[fabrika]
+            maliyet = st.number_input("Maliyet (TL/kg)", min_value=0.0, step=0.01)
+            nakliye = st.number_input("Varsayılan Nakliye (TL/kg)", min_value=0.0, step=0.01)
+        
+        if st.button("Ürünü Kaydet", type="primary"):
+            if urun_adi:
+                conn = get_db()
+                conn.execute("INSERT INTO urunler (Urun_Adi, Fabrika, Fabrika_Kodu, Kategori, Maliyet_TL_kg, Nakliye_TL_kg) VALUES (?,?,?,?,?,?)",
+                             (urun_adi, fabrika, fab_kodu, kategori, maliyet, nakliye))
+                conn.commit()
+                conn.close()
+                st.success(f"✅ {urun_adi} kaydedildi!")
+                st.rerun()
+
+    st.subheader("Mevcut Ürünler")
+    df = pd.read_sql_query("SELECT * FROM urunler", get_db())
+    st.dataframe(df, use_container_width=True)
+
+# ====================== NAKLİYE YÖNETİMİ ======================
+elif sayfa == "Nakliye Yönetimi":
+    st.header("🚛 Nakliye Yönetimi")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        fabrika = st.selectbox("Fabrika", ["Gebze", "Adana", "Trabzon"])
+    with col2:
+        sevk_ili = st.selectbox("Sevk İli", iller)
+    sevk_ilce = st.text_input("Sevk İlçe (Opsiyonel)")
+
+    ucret = st.number_input("Nakliye Ücreti (TL/kg)", min_value=0.0, step=0.01, value=12.5)
+
+    if st.button("Nakliye Tarifesini Kaydet", type="primary"):
+        conn = get_db()
+        conn.execute("INSERT OR REPLACE INTO nakliye (Fabrika, Sevk_Ili, Sevk_Ilce, Nakliye_TL_kg) VALUES (?,?,?,?)",
+                     (fabrika, sevk_ili, sevk_ilce or "", ucret))
+        conn.commit()
+        conn.close()
+        st.success(f"✅ {fabrika} → {sevk_ili} kaydedildi!")
+
+    st.subheader("Mevcut Nakliye Tarifeleri")
+    st.dataframe(pd.read_sql_query("SELECT * FROM nakliye", get_db()), use_container_width=True)
+
+# ====================== HESAPLAMA ======================
+elif sayfa == "Hesaplama":
     st.header("🧪 Birim Fiyat Hesaplama")
 
     urunler = pd.read_sql_query("SELECT * FROM urunler", get_db())
@@ -88,17 +141,14 @@ if sayfa == "Hesaplama":
     urun = urunler[urunler["Gosterim"] == secilen].iloc[0]
 
     sevk_ili = st.selectbox("Sevk İli", iller)
-    sevk_ilce = st.text_input("Sevk İlçe (Opsiyonel)")
 
-    # **NAKLİYE OTOMATİK ÇEKME**
-    nakliye_df = pd.read_sql_query(
-        "SELECT Nakliye_TL_kg FROM nakliye WHERE Fabrika=? AND Sevk_Ili=?", 
-        get_db(), params=(urun["Fabrika"], sevk_ili))
-    
+    # NAKLİYE OTOMATİK ÇEKME
+    nakliye_df = pd.read_sql_query("SELECT Nakliye_TL_kg FROM nakliye WHERE Fabrika=? AND Sevk_Ili=?", 
+                                   get_db(), params=(urun["Fabrika"], sevk_ili))
     default_nak = float(nakliye_df.iloc[0]["Nakliye_TL_kg"]) if not nakliye_df.empty else 8.0
 
     maliyet = st.number_input("Maliyet (TL/kg)", value=float(urun["Maliyet_TL_kg"]), step=0.01)
-    nakliye = st.number_input("Nakliye (TL/kg) - Otomatik Çekildi", value=default_nak, step=0.01)
+    nakliye = st.number_input("Nakliye (TL/kg)", value=default_nak, step=0.01)
     marj = st.number_input("Marj (%)", value=25.0, step=0.1)
 
     musteri_tipi = st.selectbox("Müşteri Tipi", ["Direkt Satış Müşterisi", "Bayi"])
@@ -111,21 +161,5 @@ if sayfa == "Hesaplama":
         st.success("✅ Hesaplandı!")
         st.write(f"**{urun['Urun_Adi']}** → {sevk_ili}")
         st.write(f"Birim Maliyet: **{bm:.2f} TL** | Satış: **{bs:.2f} TL** | Kâr: **{bk:.2f} TL**")
-
-# ====================== ÜRÜN YÖNETİMİ ======================
-elif sayfa == "Ürün Yönetimi":
-    st.header("🗃️ Ürün Yönetimi")
-    st.info("Ürün ekleme burada yapılabilir.")
-
-# ====================== NAKLİYE YÖNETİMİ ======================
-elif sayfa == "Nakliye Yönetimi":
-    st.header("🚛 Nakliye Yönetimi")
-    st.info("Nakliye tarifeleri burada tanımlanabilir.")
-
-# ====================== GEÇMİŞ KAYITLAR ======================
-elif sayfa == "Geçmiş Kayıtlar":
-    st.header("📋 Geçmiş Kayıtlar")
-    df = pd.read_sql_query("SELECT * FROM kayitlar ORDER BY id DESC", get_db())
-    st.dataframe(df, use_container_width=True)
 
 st.caption("FiyatOpt Kimya • Nakliye Otomatik Çekme Aktif")
