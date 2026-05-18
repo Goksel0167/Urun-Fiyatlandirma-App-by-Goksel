@@ -7,6 +7,16 @@ import sqlite3
 
 st.set_page_config(page_title="FiyatOpt Kimya", page_icon="📦", layout="wide")
 
+# ====================== TÜRKİYE İLLERİ ======================
+iller = ["Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", "Ardahan", "Artvin", 
+         "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", 
+         "Çanakkale", "Çankırı", "Çorum", "Denizli", "Diyarbakır", "Düzce", "Edirne", "Elazığ", "Erzincan", "Erzurum", 
+         "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari", "Hatay", "Iğdır", "Isparta", "İstanbul", "İzmir", 
+         "Kahramanmaraş", "Karabük", "Karaman", "Kars", "Kastamonu", "Kayseri", "Kırıkkale", "Kırklareli", "Kırşehir", 
+         "Kilis", "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Mardin", "Mersin", "Muğla", "Muş", "Nevşehir", 
+         "Niğde", "Ordu", "Osmaniye", "Rize", "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas", "Şanlıurfa", "Şırnak", 
+         "Tekirdağ", "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak"]
+
 # ====================== VERİTABANI ======================
 DB_FILE = "fiyatopt.db"
 
@@ -24,24 +34,19 @@ def init_db():
         Fabrika_Kodu INTEGER NOT NULL,
         Kategori TEXT NOT NULL,
         Maliyet_TL_kg REAL NOT NULL,
-        Nakliye_TL_kg REAL NOT NULL
+        Nakliye_TL_kg REAL
     )''')
     conn.execute('''CREATE TABLE IF NOT EXISTS nakliye (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         Fabrika TEXT NOT NULL,
         Sevk_Ili TEXT NOT NULL,
+        Sevk_Ilce TEXT,
         Nakliye_TL_kg REAL NOT NULL
     )''')
     conn.execute('''CREATE TABLE IF NOT EXISTS kayitlar (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        Tarih TEXT,
-        Urun TEXT,
-        Fabrika_Kodu INTEGER,
-        Musteri TEXT,
-        Fabrika TEXT,
-        Maliyet_TL_kg REAL,
-        Satis_TL_kg REAL,
-        Kar_TL_kg REAL
+        Tarih TEXT, Urun TEXT, Fabrika_Kodu INTEGER, Musteri TEXT, Fabrika TEXT,
+        Maliyet_TL_kg REAL, Satis_TL_kg REAL, Kar_TL_kg REAL
     )''')
     conn.commit()
     conn.close()
@@ -71,7 +76,6 @@ st.sidebar.info(f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}")
 if sayfa == "Ürün Yönetimi":
     st.header("🗃️ Ürün Yönetimi")
 
-    # Yeni Ürün Ekle
     with st.expander("➕ Yeni Ürün Ekle", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -81,26 +85,22 @@ if sayfa == "Ürün Yönetimi":
             fabrika = st.selectbox("Fabrika", ["Gebze", "Adana", "Trabzon"])
             fab_kodu = {"Gebze": 14, "Adana": 16, "Trabzon": 15}[fabrika]
             maliyet = st.number_input("Maliyet (TL/kg)", min_value=0.0, step=0.01)
-            nakliye = st.number_input("Nakliye (TL/kg)", min_value=0.0, step=0.01)
-        
-        if st.button("Ürünü Kaydet", type="primary"):
+            nakliye = st.number_input("Varsayılan Nakliye (TL/kg)", min_value=0.0, step=0.01)
+        if st.button("Ürünü Kaydet"):
             if urun_adi:
                 conn = get_db()
-                conn.execute("INSERT INTO urunler (Urun_Adi, Fabrika, Fabrika_Kodu, Kategori, Maliyet_TL_kg, Nakliye_TL_kg) VALUES (?,?,?,?,?,?)",
+                conn.execute("INSERT INTO urunler VALUES (NULL,?,?,?,?,?,?)", 
                              (urun_adi, fabrika, fab_kodu, kategori, maliyet, nakliye))
                 conn.commit()
                 conn.close()
-                st.success(f"✅ {urun_adi} kaydedildi!")
+                st.success("Ürün kaydedildi!")
                 st.rerun()
 
     st.subheader("Mevcut Ürünler")
     df = pd.read_sql_query("SELECT * FROM urunler", get_db())
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.info("Henüz ürün eklenmedi.")
+    st.dataframe(df, use_container_width=True)
 
-# ====================== NAKLİYE YÖNETİMİ ======================
+# ====================== NAKLİYE YÖNETİMİ (81 İl + İlçe) ======================
 elif sayfa == "Nakliye Yönetimi":
     st.header("🚛 Nakliye Yönetimi")
 
@@ -108,20 +108,21 @@ elif sayfa == "Nakliye Yönetimi":
     with col1:
         fabrika = st.selectbox("Fabrika", ["Gebze", "Adana", "Trabzon"])
     with col2:
-        sevk_ili = st.selectbox("Sevk İli", ["Adana","İstanbul","Ankara","İzmir","Antalya","Bursa","Konya","Trabzon","Diğer"])
-    
+        sevk_ili = st.selectbox("Sevk İli", iller)
+    sevk_ilce = st.text_input("Sevk İlçe / Bölge (Opsiyonel)")
+
     ucret = st.number_input("Nakliye Ücreti (TL/kg)", min_value=0.0, step=0.01, value=12.5)
 
-    if st.button("Nakliye Kaydet"):
+    if st.button("Nakliye Tarifesini Kaydet"):
         conn = get_db()
-        conn.execute("INSERT OR REPLACE INTO nakliye (Fabrika, Sevk_Ili, Nakliye_TL_kg) VALUES (?,?,?)", 
-                     (fabrika, sevk_ili, ucret))
+        conn.execute("INSERT OR REPLACE INTO nakliye (Fabrika, Sevk_Ili, Sevk_Ilce, Nakliye_TL_kg) VALUES (?,?,?,?)",
+                     (fabrika, sevk_ili, sevk_ilce or "", ucret))
         conn.commit()
         conn.close()
         st.success(f"✅ {fabrika} → {sevk_ili} kaydedildi!")
 
     st.subheader("Mevcut Nakliye Tarifeleri")
-    nak_df = pd.read_sql_query("SELECT * FROM nakliye", get_db())
+    nak_df = pd.read_sql_query("SELECT * FROM nakliye ORDER BY Fabrika, Sevk_Ili", get_db())
     st.dataframe(nak_df, use_container_width=True)
 
 # ====================== HESAPLAMA ======================
@@ -137,10 +138,13 @@ elif sayfa == "Hesaplama":
     secilen = st.selectbox("Ürün Seç", urunler["Gosterim"])
     urun = urunler[urunler["Gosterim"] == secilen].iloc[0]
 
-    sevk_ili = st.selectbox("Sevk Edilecek İl", ["Adana","İstanbul","Ankara","İzmir","Antalya","Bursa","Konya","Trabzon","Diğer"])
+    sevk_ili = st.selectbox("Sevk İli", iller)
+    sevk_ilce = st.text_input("Sevk İlçe (Opsiyonel)")
 
-    nakliye_df = pd.read_sql_query("SELECT Nakliye_TL_kg FROM nakliye WHERE Fabrika=? AND Sevk_Ili=?", 
-                                   get_db(), params=(urun["Fabrika"], sevk_ili))
+    # Nakliye otomatik çek
+    nakliye_df = pd.read_sql_query(
+        "SELECT Nakliye_TL_kg FROM nakliye WHERE Fabrika=? AND Sevk_Ili=?", 
+        get_db(), params=(urun["Fabrika"], sevk_ili))
     default_nak = float(nakliye_df.iloc[0]["Nakliye_TL_kg"]) if not nakliye_df.empty else 8.0
 
     maliyet = st.number_input("Maliyet (TL/kg)", value=float(urun["Maliyet_TL_kg"]), step=0.01)
@@ -154,7 +158,6 @@ elif sayfa == "Hesaplama":
         bm = maliyet + nakliye
         bs = bm * (1 + marj / 100)
         bk = bs - bm
-
         st.success("✅ Hesaplandı!")
         st.write(f"**{urun['Urun_Adi']}** → {sevk_ili}")
         st.write(f"Birim Maliyet: **{bm:.2f} TL** | Satış: **{bs:.2f} TL** | Kâr: **{bk:.2f} TL**")
@@ -163,9 +166,6 @@ elif sayfa == "Hesaplama":
 elif sayfa == "Geçmiş Kayıtlar":
     st.header("📋 Geçmiş Kayıtlar")
     df = pd.read_sql_query("SELECT * FROM kayitlar ORDER BY id DESC", get_db())
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.info("Henüz kayıt yok.")
+    st.dataframe(df, use_container_width=True)
 
-st.caption("FiyatOpt Kimya • Tüm sayfalar aktif")
+st.caption("FiyatOpt Kimya • 81 İl + İlçe Desteği Aktif")
